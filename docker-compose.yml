@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: clri
+      POSTGRES_PASSWORD: clri_dev_password
+      POSTGRES_DB: clri
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clri"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Web Application
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://clri:clri_dev_password@db:5432/clri
+      SESSION_SECRET: dev-secret-change-in-production
+      INVITE_CODES: dev123,clri2024
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./:/app:ro
+      - /app/__pycache__
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Background Worker
+  worker:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://clri:clri_dev_password@db:5432/clri
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./:/app:ro
+      - /app/__pycache__
+    command: python -m worker.main
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

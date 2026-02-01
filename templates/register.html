@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLRI - Register</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+    <div class="w-full max-w-md px-6">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2">
+                <span class="text-orange-500">CLRI</span>
+            </h1>
+            <p class="text-gray-400">Crypto Leverage Risk Index</p>
+        </div>
+        
+        <div class="bg-gray-800 rounded-lg p-8 shadow-xl">
+            <h2 class="text-xl font-semibold mb-6">Create Account</h2>
+            
+            <div id="error-message" class="hidden bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded mb-4">
+            </div>
+            
+            <div id="success-message" class="hidden bg-green-900/50 border border-green-500 text-green-200 px-4 py-3 rounded mb-4">
+            </div>
+            
+            <form id="register-form" class="space-y-4">
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Username</label>
+                    <input 
+                        type="text" 
+                        name="username" 
+                        required
+                        minlength="3"
+                        maxlength="50"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-orange-500"
+                        placeholder="Choose a username"
+                    >
+                </div>
+                
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Password</label>
+                    <input 
+                        type="password" 
+                        name="password" 
+                        required
+                        minlength="8"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-orange-500"
+                        placeholder="Create a password (min 8 characters)"
+                    >
+                </div>
+                
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Confirm Password</label>
+                    <input 
+                        type="password" 
+                        name="confirm_password" 
+                        required
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-orange-500"
+                        placeholder="Confirm your password"
+                    >
+                </div>
+                
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Invite Code</label>
+                    <input 
+                        type="text" 
+                        name="invite_code" 
+                        required
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-orange-500"
+                        placeholder="Enter your invite code"
+                    >
+                    <p class="text-gray-500 text-xs mt-1">Request an invite code from an existing member</p>
+                </div>
+                
+                <button 
+                    type="submit"
+                    class="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded transition"
+                >
+                    Create Account
+                </button>
+            </form>
+            
+            <div class="mt-6 text-center text-gray-400 text-sm">
+                Already have an account? 
+                <a href="/login" class="text-orange-500 hover:underline">Sign In</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const form = e.target;
+            const errorEl = document.getElementById('error-message');
+            const successEl = document.getElementById('success-message');
+            
+            errorEl.classList.add('hidden');
+            successEl.classList.add('hidden');
+            
+            const formData = new FormData(form);
+            
+            // Validate passwords match
+            if (formData.get('password') !== formData.get('confirm_password')) {
+                errorEl.textContent = 'Passwords do not match';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            
+            const data = {
+                username: formData.get('username'),
+                password: formData.get('password'),
+                invite_code: formData.get('invite_code'),
+            };
+            
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                
+                if (response.ok) {
+                    successEl.textContent = 'Account created! Redirecting to login...';
+                    successEl.classList.remove('hidden');
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2000);
+                } else {
+                    const result = await response.json();
+                    errorEl.textContent = result.detail || 'Registration failed';
+                    errorEl.classList.remove('hidden');
+                }
+            } catch (error) {
+                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

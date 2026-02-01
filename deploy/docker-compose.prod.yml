@@ -1,0 +1,81 @@
+version: '3.8'
+
+# ===========================================
+# CLRI Production Stack (Hetzner EU)
+# ===========================================
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Requires .env file with:
+#   - DB_PASSWORD
+#   - DISCORD_WEBHOOK_URL
+#   - COINGLASS_API_KEY
+#   - DISCORD_BOT_TOKEN (optional, for message cleanup)
+#   - DISCORD_CHANNEL_ID (optional, for message cleanup)
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: clri
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: clri
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clri"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # No ports exposed - internal only
+
+  # CLRI Worker (main data collection + alerts)
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://clri:${DB_PASSWORD}@db:5432/clri
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      COINGLASS_API_KEY: ${COINGLASS_API_KEY}
+      ENABLED_EXCHANGES: ${ENABLED_EXCHANGES:-binanceusdm,bybit,okx}
+      TRACKED_SYMBOLS: ${TRACKED_SYMBOLS:-BTC,ETH,SOL,XRP,DOGE,AVAX,LINK}
+      POLLING_INTERVAL: ${POLLING_INTERVAL:-60}
+      SUMMARY_INTERVAL: ${SUMMARY_INTERVAL:-900}
+      ALERT_COOLDOWN: ${ALERT_COOLDOWN:-300}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_CHANNEL_ID: ${DISCORD_CHANNEL_ID:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python -m worker.main
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Web Dashboard
+  # Uncomment if you want the web UI
+  # web:
+  #   build:
+  #     context: ..
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "127.0.0.1:8000:8000"  # Localhost only - use nginx/caddy for HTTPS
+  #   environment:
+  #     DATABASE_URL: postgresql://clri:${DB_PASSWORD}@db:5432/clri
+  #     SESSION_SECRET: ${SESSION_SECRET}
+  #     INVITE_CODES: ${INVITE_CODES:-clri2024}
+  #     DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:

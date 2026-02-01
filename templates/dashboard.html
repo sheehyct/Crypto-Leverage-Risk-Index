@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLRI Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+    <style>
+        .risk-low { background-color: #10B981; }
+        .risk-moderate { background-color: #F59E0B; }
+        .risk-elevated { background-color: #F97316; }
+        .risk-high { background-color: #EF4444; }
+        .risk-extreme { background-color: #8B5CF6; }
+        
+        .direction-long { color: #10B981; }
+        .direction-short { color: #EF4444; }
+        .direction-neutral { color: #6B7280; }
+        
+        .card {
+            @apply bg-gray-800 rounded-lg p-4 shadow-lg;
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(239, 68, 68, 0.5); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+        }
+        
+        .alert-pulse {
+            animation: pulse-glow 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div class="flex items-center justify-between max-w-7xl mx-auto">
+            <div class="flex items-center gap-4">
+                <h1 class="text-2xl font-bold">
+                    <span class="text-orange-500">CLRI</span> Dashboard
+                </h1>
+                <span class="text-sm text-gray-400">Crypto Leverage Risk Index</span>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-gray-400">{{ user.username }}</span>
+                <button onclick="logout()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm">
+                    Logout
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-6 py-6">
+        <!-- Market Overview -->
+        <section class="mb-8">
+            <h2 class="text-xl font-semibold mb-4">Market Overview</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- Market CLRI Score -->
+                <div class="card" id="market-card">
+                    <div class="text-gray-400 text-sm mb-2">Market CLRI</div>
+                    <div class="flex items-end gap-2">
+                        <span id="market-clri" class="text-4xl font-bold">--</span>
+                        <span class="text-gray-400 text-xl">/100</span>
+                    </div>
+                    <div id="market-risk" class="mt-2 px-2 py-1 rounded text-xs inline-block">
+                        --
+                    </div>
+                </div>
+                
+                <!-- Direction -->
+                <div class="card">
+                    <div class="text-gray-400 text-sm mb-2">Market Bias</div>
+                    <div id="market-direction" class="text-2xl font-semibold">--</div>
+                </div>
+                
+                <!-- Elevated Count -->
+                <div class="card">
+                    <div class="text-gray-400 text-sm mb-2">Elevated Symbols</div>
+                    <div class="flex items-baseline gap-1">
+                        <span id="elevated-count" class="text-3xl font-bold">--</span>
+                        <span class="text-gray-400">/ <span id="total-count">--</span></span>
+                    </div>
+                </div>
+                
+                <!-- Last Update -->
+                <div class="card">
+                    <div class="text-gray-400 text-sm mb-2">Last Update</div>
+                    <div id="last-update" class="text-lg">--</div>
+                    <div id="connection-status" class="text-sm text-green-400 mt-1">● Connected</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Individual Symbols -->
+        <section class="mb-8">
+            <h2 class="text-xl font-semibold mb-4">Individual Symbols</h2>
+            <div id="symbols-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <!-- Populated by JS -->
+                <div class="card animate-pulse">
+                    <div class="h-6 bg-gray-700 rounded mb-2"></div>
+                    <div class="h-10 bg-gray-700 rounded"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Section -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- CLRI History Chart -->
+            <div class="card">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold">CLRI History</h3>
+                    <select id="chart-symbol" class="bg-gray-700 rounded px-3 py-1 text-sm">
+                        <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                        <option value="SOL">SOL</option>
+                    </select>
+                </div>
+                <canvas id="clri-chart" height="200"></canvas>
+            </div>
+            
+            <!-- Component Breakdown -->
+            <div class="card">
+                <h3 class="font-semibold mb-4">Component Breakdown</h3>
+                <canvas id="component-chart" height="200"></canvas>
+            </div>
+        </section>
+
+        <!-- Recent Alerts -->
+        <section>
+            <h2 class="text-xl font-semibold mb-4">Recent Alerts</h2>
+            <div class="card overflow-hidden">
+                <table class="w-full">
+                    <thead class="text-left text-gray-400 text-sm">
+                        <tr>
+                            <th class="pb-3">Time</th>
+                            <th class="pb-3">Symbol</th>
+                            <th class="pb-3">Score</th>
+                            <th class="pb-3">Risk</th>
+                            <th class="pb-3">Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alerts-table" class="text-sm">
+                        <tr>
+                            <td colspan="5" class="text-center text-gray-500 py-4">Loading alerts...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // State
+        let clriChart = null;
+        let componentChart = null;
+        let currentReadings = {};
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            fetchData();
+            // Refresh every 30 seconds
+            setInterval(fetchData, 30000);
+        });
+        
+        // Fetch all data
+        async function fetchData() {
+            try {
+                await Promise.all([
+                    fetchCurrentCLRI(),
+                    fetchMarketSummary(),
+                    fetchAlerts(),
+                ]);
+                document.getElementById('connection-status').textContent = '● Connected';
+                document.getElementById('connection-status').className = 'text-sm text-green-400 mt-1';
+            } catch (error) {
+                console.error('Fetch error:', error);
+                document.getElementById('connection-status').textContent = '● Disconnected';
+                document.getElementById('connection-status').className = 'text-sm text-red-400 mt-1';
+            }
+        }
+        
+        // Fetch current CLRI readings
+        async function fetchCurrentCLRI() {
+            const response = await fetch('/api/clri/current');
+            if (!response.ok) {
+                if (response.status === 401) window.location.href = '/login';
+                throw new Error('Failed to fetch');
+            }
+            
+            const data = await response.json();
+            currentReadings = {};
+            
+            // Update symbols grid
+            const grid = document.getElementById('symbols-grid');
+            grid.innerHTML = '';
+            
+            // Sort by CLRI score descending
+            const sorted = data.readings.sort((a, b) => b.clri_score - a.clri_score);
+            
+            // Update symbol dropdown
+            const dropdown = document.getElementById('chart-symbol');
+            const currentValue = dropdown.value;
+            dropdown.innerHTML = sorted.map(r => 
+                `<option value="${r.symbol}">${r.symbol}</option>`
+            ).join('');
+            dropdown.value = currentValue || sorted[0]?.symbol || 'BTC';
+            
+            for (const reading of sorted) {
+                currentReadings[reading.symbol] = reading;
+                
+                const card = document.createElement('div');
+                const riskClass = `risk-${reading.risk_level.toLowerCase()}`;
+                const dirClass = `direction-${reading.direction.toLowerCase().split('_')[0]}`;
+                const isElevated = reading.clri_score >= 65;
+                
+                card.className = `card ${isElevated ? 'alert-pulse border border-red-500' : ''}`;
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-semibold">${reading.symbol}</span>
+                        <span class="${riskClass} px-2 py-0.5 rounded text-xs">${reading.risk_level}</span>
+                    </div>
+                    <div class="text-3xl font-bold mb-1">${reading.clri_score}</div>
+                    <div class="${dirClass} text-sm">${formatDirection(reading.direction)}</div>
+                    <div class="text-gray-500 text-xs mt-2">
+                        $${reading.price?.toLocaleString() || '--'}
+                    </div>
+                `;
+                card.onclick = () => selectSymbol(reading.symbol);
+                card.style.cursor = 'pointer';
+                
+                grid.appendChild(card);
+            }
+            
+            // Update component chart
+            updateComponentChart(sorted[0] || null);
+            
+            // Update last update time
+            document.getElementById('last-update').textContent = 
+                new Date().toLocaleTimeString();
+            
+            document.getElementById('total-count').textContent = sorted.length;
+        }
+        
+        // Fetch market summary
+        async function fetchMarketSummary() {
+            const response = await fetch('/api/clri/market');
+            if (!response.ok) throw new Error('Failed to fetch market');
+            
+            const data = await response.json();
+            
+            document.getElementById('market-clri').textContent = data.market_clri;
+            
+            const riskEl = document.getElementById('market-risk');
+            riskEl.textContent = data.risk_level;
+            riskEl.className = `mt-2 px-2 py-1 rounded text-xs inline-block risk-${data.risk_level.toLowerCase()}`;
+            
+            const marketCard = document.getElementById('market-card');
+            if (data.market_clri >= 65) {
+                marketCard.classList.add('alert-pulse', 'border', 'border-red-500');
+            } else {
+                marketCard.classList.remove('alert-pulse', 'border', 'border-red-500');
+            }
+            
+            document.getElementById('market-direction').textContent = 
+                formatDirection(data.market_direction || 'NEUTRAL');
+            document.getElementById('market-direction').className = 
+                `text-2xl font-semibold direction-${(data.market_direction || 'neutral').toLowerCase().split('_')[0]}`;
+            
+            document.getElementById('elevated-count').textContent = data.symbols_elevated || 0;
+        }
+        
+        // Fetch alerts
+        async function fetchAlerts() {
+            const response = await fetch('/api/alerts?limit=10');
+            if (!response.ok) throw new Error('Failed to fetch alerts');
+            
+            const data = await response.json();
+            
+            const table = document.getElementById('alerts-table');
+            
+            if (data.alerts.length === 0) {
+                table.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-4">No alerts yet</td></tr>';
+                return;
+            }
+            
+            table.innerHTML = data.alerts.map(alert => `
+                <tr class="border-t border-gray-700">
+                    <td class="py-3 text-gray-400">${new Date(alert.triggered_at).toLocaleString()}</td>
+                    <td class="py-3 font-semibold">${alert.symbol}</td>
+                    <td class="py-3">${alert.clri_score}</td>
+                    <td class="py-3">
+                        <span class="risk-${alert.risk_level?.toLowerCase() || 'low'} px-2 py-0.5 rounded text-xs">
+                            ${alert.risk_level || '--'}
+                        </span>
+                    </td>
+                    <td class="py-3 text-gray-300">${alert.message || '--'}</td>
+                </tr>
+            `).join('');
+        }
+        
+        // Select symbol for charts
+        async function selectSymbol(symbol) {
+            document.getElementById('chart-symbol').value = symbol;
+            await fetchHistory(symbol);
+            
+            if (currentReadings[symbol]) {
+                updateComponentChart(currentReadings[symbol]);
+            }
+        }
+        
+        // Fetch history for chart
+        async function fetchHistory(symbol) {
+            try {
+                const response = await fetch(`/api/clri/history/${symbol}?hours=24`);
+                if (!response.ok) throw new Error('Failed to fetch history');
+                
+                const data = await response.json();
+                updateCLRIChart(data);
+            } catch (error) {
+                console.error('History fetch error:', error);
+            }
+        }
+        
+        // Initialize charts
+        function initCharts() {
+            const clriCtx = document.getElementById('clri-chart').getContext('2d');
+            clriChart = new Chart(clriCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'CLRI Score',
+                        data: [],
+                        borderColor: '#F97316',
+                        backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'hour',
+                                displayFormats: {
+                                    hour: 'HH:mm'
+                                }
+                            },
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#9CA3AF' }
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#9CA3AF' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        annotation: {
+                            annotations: {
+                                line1: {
+                                    type: 'line',
+                                    yMin: 65,
+                                    yMax: 65,
+                                    borderColor: 'rgba(239, 68, 68, 0.5)',
+                                    borderWidth: 1,
+                                    borderDash: [5, 5],
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            const compCtx = document.getElementById('component-chart').getContext('2d');
+            componentChart = new Chart(compCtx, {
+                type: 'radar',
+                data: {
+                    labels: ['Funding', 'Open Interest', 'Volume', 'Liquidations', 'Imbalance'],
+                    datasets: [{
+                        label: 'Component Scores',
+                        data: [0, 0, 0, 0, 0],
+                        borderColor: '#F97316',
+                        backgroundColor: 'rgba(249, 115, 22, 0.2)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            min: 0,
+                            max: 100,
+                            ticks: { color: '#9CA3AF', backdropColor: 'transparent' },
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            pointLabels: { color: '#9CA3AF' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+            
+            // Initial load
+            document.getElementById('chart-symbol').addEventListener('change', (e) => {
+                selectSymbol(e.target.value);
+            });
+            
+            fetchHistory('BTC');
+        }
+        
+        // Update CLRI chart
+        function updateCLRIChart(data) {
+            clriChart.data.datasets[0].data = data.history.map(h => ({
+                x: new Date(h.timestamp),
+                y: h.clri_score
+            }));
+            clriChart.update();
+        }
+        
+        // Update component chart
+        function updateComponentChart(reading) {
+            if (!reading || !reading.component_scores) {
+                componentChart.data.datasets[0].data = [0, 0, 0, 0, 0];
+            } else {
+                componentChart.data.datasets[0].data = [
+                    reading.component_scores.funding || 0,
+                    reading.component_scores.oi || 0,
+                    reading.component_scores.volume || 0,
+                    reading.component_scores.liquidation || 0,
+                    reading.component_scores.imbalance || 0,
+                ];
+            }
+            componentChart.update();
+        }
+        
+        // Format direction
+        function formatDirection(direction) {
+            if (!direction) return '--';
+            return direction
+                .replace('_', ' ')
+                .split(' ')
+                .map(w => w.charAt(0) + w.slice(1).toLowerCase())
+                .join(' ');
+        }
+        
+        // Logout
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/login';
+        }
+    </script>
+</body>
+</html>

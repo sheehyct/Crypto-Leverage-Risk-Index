@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLRI - Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+    <div class="w-full max-w-md px-6">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2">
+                <span class="text-orange-500">CLRI</span>
+            </h1>
+            <p class="text-gray-400">Crypto Leverage Risk Index</p>
+        </div>
+        
+        <div class="bg-gray-800 rounded-lg p-8 shadow-xl">
+            <h2 class="text-xl font-semibold mb-6">Sign In</h2>
+            
+            <div id="error-message" class="hidden bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded mb-4">
+            </div>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Username</label>
+                    <input 
+                        type="text" 
+                        name="username" 
+                        required
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-orange-500"
+                        placeholder="Enter your username"
+                    >
+                </div>
+                
+                <div>
+                    <label class="block text-gray-400 text-sm mb-2">Password</label>
+                    <input 
+                        type="password" 
+                        name="password" 
+                        required
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-3 focus:outline-none focus:border-orange-500"
+                        placeholder="Enter your password"
+                    >
+                </div>
+                
+                <button 
+                    type="submit"
+                    class="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded transition"
+                >
+                    Sign In
+                </button>
+            </form>
+            
+            <div class="mt-6 text-center text-gray-400 text-sm">
+                Don't have an account? 
+                <a href="/register" class="text-orange-500 hover:underline">Register</a>
+            </div>
+        </div>
+        
+        <div class="mt-8 text-center text-gray-500 text-sm">
+            <p>Monitor crypto leverage risk in real-time</p>
+            <p class="mt-1">Funding rates • Open Interest • Liquidations</p>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const form = e.target;
+            const errorEl = document.getElementById('error-message');
+            errorEl.classList.add('hidden');
+            
+            const formData = new FormData(form);
+            const data = {
+                username: formData.get('username'),
+                password: formData.get('password'),
+            };
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                
+                if (response.ok) {
+                    window.location.href = '/';
+                } else {
+                    const result = await response.json();
+                    errorEl.textContent = result.detail || 'Login failed';
+                    errorEl.classList.remove('hidden');
+                }
+            } catch (error) {
+                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
