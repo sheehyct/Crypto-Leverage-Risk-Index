@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/clri-logo.png" alt="CLRI - Crypto Leverage Risk Index" width="600">
+</p>
+
 # CLRI - Crypto Leverage Risk Index
 
 A real-time monitoring system that tracks crypto market leverage to predict volatile price moves. Aggregates funding rates, open interest, liquidations, and order book data across multiple exchanges to produce a composite risk score (0-100).
