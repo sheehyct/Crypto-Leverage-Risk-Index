@@ -112,11 +112,15 @@ class CLRIWorker:
         # Market CLRI tracking for two-layer alert system
         self._previous_market_clri: int = 0
         self._market_alert_last_time: Optional[datetime] = None
+        self._market_last_alert_clri: int = 0  # CLRI level when last alert was sent
+        self._market_baseline_reset: bool = True  # Whether CLRI has returned to LOW since last alert
         self.MARKET_ALERT_COOLDOWN = 300  # 5 minute cooldown for market alerts
         self.MARKET_ALERT_INTERVAL = 30  # Check market alerts every 30 seconds
         self.MARKET_THRESHOLD_ELEVATED = 65
         self.MARKET_THRESHOLD_HIGH = 80
         self.MARKET_THRESHOLD_EXTREME = 90
+        self.MARKET_SPIKE_MIN_THRESHOLD = 60  # Minimum CLRI to trigger spike alerts
+        self.MARKET_BASELINE_THRESHOLD = 30  # Must drop below this to reset baseline
 
         # Graceful shutdown
         self._shutdown_event = asyncio.Event()
@@ -436,6 +440,7 @@ class CLRIWorker:
         - Single alert when market-wide CLRI crosses 65/80/90
         - Uses dynamic OI weighting
         - One alert covers the whole market
+        - SPIKE alerts only when CLRI >= 60 AND baseline has reset (dropped below 30)
 
         Layer 2 (Divergence): Individual symbol divergence alerts
         - Only fires when a symbol is 25+ points above market CLRI
@@ -461,6 +466,12 @@ class CLRIWorker:
                 market_output = self.aggregate.calculate_market_clri(readings, oi_data)
                 market_clri = market_output.market_clri
 
+                # --- Track baseline reset (CLRI dropped below LOW threshold) ---
+                if market_clri < self.MARKET_BASELINE_THRESHOLD:
+                    if not self._market_baseline_reset:
+                        logger.info(f"Market CLRI returned to baseline: {market_clri} < {self.MARKET_BASELINE_THRESHOLD}")
+                    self._market_baseline_reset = True
+
                 # --- Layer 1: Market CLRI Threshold Alerts ---
                 now = datetime.now(timezone.utc)
                 can_alert = (
@@ -473,33 +484,74 @@ class CLRIWorker:
                     prev = self._previous_market_clri
                     alert_sent = False
 
-                    if market_clri >= self.MARKET_THRESHOLD_EXTREME and prev < self.MARKET_THRESHOLD_EXTREME:
-                        await self.alerter.send_market_clri_alert(market_output, "THRESHOLD", prev)
-                        alert_sent = True
-                        logger.info(f"Market CLRI EXTREME alert: {prev} -> {market_clri}")
-                    elif market_clri >= self.MARKET_THRESHOLD_HIGH and prev < self.MARKET_THRESHOLD_HIGH:
-                        await self.alerter.send_market_clri_alert(market_output, "THRESHOLD", prev)
-                        alert_sent = True
-                        logger.info(f"Market CLRI HIGH alert: {prev} -> {market_clri}")
-                    elif market_clri >= self.MARKET_THRESHOLD_ELEVATED and prev < self.MARKET_THRESHOLD_ELEVATED:
-                        await self.alerter.send_market_clri_alert(market_output, "THRESHOLD", prev)
-                        alert_sent = True
-                        logger.info(f"Market CLRI ELEVATED alert: {prev} -> {market_clri}")
+                    # Threshold crossing alerts (65/80/90) - only fire on upward crossing
+                    # AND only if baseline has been reset (to avoid repeated alerts in elevated state)
+                    if self._market_baseline_reset:
+                        if market_clri >= self.MARKET_THRESHOLD_EXTREME and prev < self.MARKET_THRESHOLD_EXTREME:
+                            await self.alerter.send_market_clri_alert(market_output, "THRESHOLD", prev)
+                            alert_sent = True
+                            logger.info(f"Market CLRI EXTREME alert: {prev} -> {market_clri}")
+                        elif market_clri >= self.MARKET_THRESHOLD_HIGH and prev < self.MARKET_THRESHOLD_HIGH:
+                            await self.alerter.send_market_clri_alert(market_output, "THRESHOLD", prev)
+                            alert_sent = True
+                            logger.info(f"Market CLRI HIGH alert: {prev} -> {market_clri}")
+                        elif market_clri >= self.MARKET_THRESHOLD_ELEVATED and prev < self.MARKET_THRESHOLD_ELEVATED:
+                            await self.alerter.send_market_clri_alert(market_output, "THRESHOLD", prev)
+                            alert_sent = True
+                            logger.info(f"Market CLRI ELEVATED alert: {prev} -> {market_clri}")
 
-                    # Also check for rapid market spikes (15+ pts in short window)
+                    # Spike alerts: only when BOTH conditions are met:
+                    # 1. CLRI is in actionable territory (>= 60)
+                    # 2. Baseline has been reset (CLRI dropped below 30 since last alert)
+                    # OR this is a continuation spike (CLRI continues to climb 15+ pts from last alert level)
                     if not alert_sent and abs(market_clri - prev) >= 15:
-                        await self.alerter.send_market_clri_alert(market_output, "SPIKE", prev)
-                        alert_sent = True
-                        logger.info(f"Market CLRI SPIKE alert: {prev} -> {market_clri}")
+                        # Check if this spike is in actionable territory
+                        in_actionable_territory = (
+                            market_clri >= self.MARKET_SPIKE_MIN_THRESHOLD or
+                            prev >= self.MARKET_SPIKE_MIN_THRESHOLD
+                        )
+
+                        if in_actionable_territory:
+                            # Check if we should alert based on baseline reset or continuation
+                            is_continuation = (
+                                self._market_last_alert_clri > 0 and
+                                market_clri >= self._market_last_alert_clri + 15
+                            )
+
+                            if self._market_baseline_reset or is_continuation:
+                                await self.alerter.send_market_clri_alert(market_output, "SPIKE", prev)
+                                alert_sent = True
+                                logger.info(f"Market CLRI SPIKE alert: {prev} -> {market_clri} (baseline_reset={self._market_baseline_reset}, continuation={is_continuation})")
+                            else:
+                                logger.debug(
+                                    f"Suppressed spike alert {prev} -> {market_clri}: "
+                                    f"baseline not reset (last alert at {self._market_last_alert_clri})"
+                                )
+                        else:
+                            logger.debug(
+                                f"Suppressed spike alert {prev} -> {market_clri}: "
+                                f"not in actionable territory (need >= {self.MARKET_SPIKE_MIN_THRESHOLD})"
+                            )
 
                     if alert_sent:
                         self._market_alert_last_time = now
+                        self._market_last_alert_clri = market_clri
+                        self._market_baseline_reset = False  # Reset baseline flag after alert
 
                 # Update previous for next iteration
                 self._previous_market_clri = market_clri
 
                 # --- Layer 2: Divergence Alerts ---
+                # Only fire divergence alerts when the divergent symbol's CLRI is elevated (>= 60)
                 for symbol, symbol_clri, divergence in market_output.divergent_symbols:
+                    # Only alert on divergent symbols that are in elevated territory
+                    if symbol_clri < self.MARKET_SPIKE_MIN_THRESHOLD:
+                        logger.debug(
+                            f"Suppressed divergence alert for {symbol}: "
+                            f"CLRI {symbol_clri} < {self.MARKET_SPIKE_MIN_THRESHOLD}"
+                        )
+                        continue
+
                     # Find the reading to get direction and risk level
                     reading = next((r for r in readings if r.symbol == symbol), None)
                     if reading:
